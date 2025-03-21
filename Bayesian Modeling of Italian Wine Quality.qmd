@@ -1,0 +1,299 @@
+---
+title: "Assignment 3"
+author: "Beyza Kordan"
+format: pdf
+editor: visual
+---
+
+## DATASET
+
+These data are the results of a chemical analysis of 178 wines grown in the same region in Italy. The analysis determined the quantities of 4 constituents found in all the types of wine.
+
+### Question 1
+
+Briefly explain the choice of prior distributions. Provide appropriate summaries of the posterior distributions of the parameters for each model. Interpret the model output in each case.
+
+```{r}
+library(rstan)
+library(bayesplot)
+load(url("https://acaimo.github.io/teaching/data/italian_wines.RData"))
+
+data_list <- list(
+  N = nrow(italian_wines),
+  alcohol = italian_wines$alcohol,
+  magnesium = italian_wines$magnesium,
+  color_intensity = italian_wines$color_intensity,
+  proline = italian_wines$proline
+)
+model1_code <- "
+data {
+  int<lower=0> N;
+  vector[N] magnesium;
+  vector[N] alcohol;
+}
+parameters {
+  real alpha;
+  real beta1;
+  real<lower=0> sigma;
+}
+model {
+  alpha ~ normal(0, 10);
+  beta1 ~ normal(0, 10);
+  sigma ~ exponential(1);
+  alcohol ~ normal(alpha + beta1 * magnesium, sigma);
+}"
+
+fit1 <- stan(model_code = model1_code, data = data_list, iter = 2000, chains = 4, refresh = 0)
+print(fit1, probs=c(0.025, 0.5, 0.975))
+
+model2_code <- "
+data {
+  int<lower=0> N;
+  vector[N] magnesium;
+  vector[N] color_intensity;
+  vector[N] alcohol;
+}
+parameters {
+  real alpha;
+  real beta1;
+  real beta2;
+  real<lower=0> sigma;
+}
+model {
+  alpha ~ normal(0, 10);
+  beta1 ~ normal(0, 10);
+  beta2 ~ normal(0, 10);
+  sigma ~ exponential(1);
+  alcohol ~ normal(alpha + beta1 * magnesium + beta2 * color_intensity, sigma);
+}"
+fit2 <- stan(model_code = model2_code, data = data_list, iter = 2000, chains = 4, refresh = 0)
+print(fit2, probs=c(0.025, 0.5, 0.975))
+
+model3_code <- "
+data {
+  int<lower=0> N;
+  vector[N] magnesium;
+  vector[N] color_intensity;
+  vector[N] proline;
+  vector[N] alcohol;
+}
+parameters {
+  real alpha;
+  real beta1;
+  real beta2;
+  real beta3;
+  real<lower=0> sigma;
+}
+model {
+  alpha ~ normal(0, 10);
+  beta1 ~ normal(0, 10);
+  beta2 ~ normal(0, 10);
+  beta3 ~ normal(0, 10);
+  sigma ~ exponential(1);
+  alcohol ~ normal(alpha + beta1 * magnesium + beta2 * color_intensity + beta3 * proline, sigma);
+}"
+fit3 <- stan(model_code = model3_code, data = data_list, iter = 2000, chains = 4, refresh = 0)
+print(fit3, probs=c(0.025, 0.5, 0.975))
+
+# Model Interpretations
+cat(
+  "\nModel 1 Interpretation:\n
+  Model 1 suggests a positive relationship between magnesium and alcohol content\n")
+cat(
+  "\nModel 2 Interpretation:\n
+  Model 2 extends Model 1 by including color_intensity as an additional predictor\n")
+cat(
+  "\nModel 3 Interpretation:\n
+  Model 3 offers the most comprehensive insight, demonstrating the effects of magnesium, 
+  color_intensity,and proline on alcohol content\n")
+```
+
+**Model 1** indicates magnesium significantly increases wine alcohol content, with a baseline level at 11.45 units. Each unit increase in magnesium raises alcohol content by 0.22 units, showcasing magnesium's strong influence amidst other unexplained variability (sigma = 0.79).
+
+**Model 2**, adding color_intensity alongside magnesium, shows both significantly impact wine alcohol content. The baseline alcohol content is adjusted to 11.11. Magnesium increases alcohol by 0.14 units, and color_intensity by 0.18 units per unit increase. The tighter sigma (0.67) suggests an improved model fit with these predictors.
+
+**Model 3** integrates proline, offering the deepest analysis by examining its effect along with magnesium and color_intensity on alcohol content. This model, with the lowest sigma (0.56), shows the most substantial explanatory power. Notably, magnesium's impact is negligible, but color_intensity and proline significantly enhance alcohol content by 0.13 and 0.43 units, respectively. This suggests a more nuanced relationship, with Model 3 providing the most comprehensive fit.
+
+### Question 2
+
+Employ two different posterior predictive checks of your choice to examine the model fit for each model. Provide a concise interpretation.
+
+```{r}
+if (!requireNamespace("rstanarm", quietly = TRUE)) install.packages("rstanarm")
+library(rstanarm)
+library(bayesplot)
+library(ggplot2)
+
+fit1 <- stan_glm(alcohol ~ magnesium, data = italian_wines, 
+                 family = gaussian(), chains = 4, iter = 2000, refresh = 0)
+fit2 <- stan_glm(alcohol ~ magnesium + color_intensity, 
+                 data=italian_wines, family = gaussian(), chains = 4, iter = 2000, refresh = 0)
+fit3 <- stan_glm(alcohol ~ magnesium + color_intensity + proline, 
+                 data=italian_wines, family = gaussian(), chains = 4, iter = 2000, refresh = 0)
+
+perform_pp_checks <- function(fit, model_name) {
+  y_obs <- fit$model$alcohol  
+  y_rep <- posterior_predict(fit)
+  
+# Density Overlay Plot
+  ppc_dens_overlay_plot <- ppc_dens_overlay(y_obs, y_rep[1:1000, ]) +
+    ggtitle(paste("Density Overlay for", model_name)) +
+    theme_minimal()
+  print(ppc_dens_overlay_plot)
+  
+# Interpretation guide for Density Overlay
+  cat("\nInterpretation Guide for Density Overlay:", model_name, "\n",
+      "A good overlap suggests the model captures the data's distribution well.\n")
+  
+# 95% PPC Intervals Plot
+  ppc_intervals_plot <- ppc_intervals(y_obs, y_rep, prob = 0.95) +
+    ggtitle(paste("95% PPC Intervals for", model_name)) +
+    theme_minimal()
+  print(ppc_intervals_plot)
+  
+# Interpretation guide for 95% PPC Intervals
+  cat("Interpretation Guide for 95% PPC Intervals:", model_name, "\n",
+      "Most observed points should fall within the interval.\n")}
+
+# Execute checks for each model and review interpretation guides
+perform_pp_checks(fit1, "Model 1")
+perform_pp_checks(fit2, "Model 2")
+perform_pp_checks(fit3, "Model 3")
+```
+
+**Model 1 Interpretations:** *Density Overlay:* The observed data's distribution closely matches the simulated posterior distributions, indicating that Model 1 accurately captures the central tendency and variability of the data. *95% PPC Intervals:* Most observed data points fall within the predictive intervals, suggesting good predictive accuracy for the observed data in Model 1. **Model 2 Interpretations:** *Density Overlay:* The alignment of observed and simulated data distributions suggests a good model fit, indicating that Model 2 captures the central trend of alcohol levels accurately. *95% PPC Intervals:* The fact that most observed data points are within the 95% predictive intervals demonstrates Model 2's reliable predictive capability for the range of alcohol levels observed. **Model 3 Interpretations:** *Density Overlay:* The close alignment between observed and simulated data distributions suggests that Model 3 effectively captures the data's distribution. *95% PPC Intervals:* Predominantly, observed data points falling within the 95% predictive intervals indicate a strong predictive performance by Model 3.
+
+### Question 3
+
+Compare the three models using WAIC and LOO-cross-validation. Provide a concise interpretation.
+
+```{r}
+if (!requireNamespace("rstanarm", quietly = TRUE)) {
+  install.packages("rstanarm")
+}
+library(rstanarm)
+
+if (!requireNamespace("loo", quietly = TRUE)) {
+  install.packages("loo")
+}
+library(loo)
+fit1 <- stan_glm(alcohol ~ magnesium, data = italian_wines, family = gaussian(),
+                 chains=4, iter = 2000, refresh = 0)
+fit2 <- stan_glm(alcohol ~ magnesium + color_intensity, data = italian_wines,
+                 family=gaussian(), chains = 4, iter = 2000, refresh = 0)
+fit3 <- stan_glm(alcohol ~ magnesium + color_intensity + proline, 
+                 data=italian_wines, family = gaussian(), chains = 4, iter = 2000, refresh = 0)
+
+waic1 <- waic(fit1)
+waic2 <- waic(fit2)
+waic3 <- waic(fit3)
+
+loo1 <- loo(fit1)
+loo2 <- loo(fit2)
+loo3 <- loo(fit3)
+# Use loo_compare for comparing models based on LOO-CV
+loo_comparison <- loo_compare(loo1, loo2, loo3)
+print("LOO-CV comparison:")
+print(loo_comparison)
+
+# LOO-CV ranks Model3 as best (elpd_diff = 0), with Model2 and Model1 trailing.
+# Model 3's superiority in predictive accuracy makes it the preferred choice.
+
+cat("\nWAIC Results:\n")
+cat("WAIC for Model 1:\n")
+print(waic1)
+cat("WAIC for Model 2:\n")
+print(waic2)
+cat("WAIC for Model 3:\n")
+print(waic3)
+
+# Model3(299.6)best balances fit and simplicity,
+# outperforming Model2(367.8)and Model1(422.6, least preferred).
+# Model3's efficiency and accuracy make it the optimal choice, confirming LOO-CV findings.
+
+# Extracting WAIC values correctly
+waic_values <- sapply(list(waic1, waic2, waic3), function(x) sum(x$pointwise[, "waic"]))
+best_model_waic <- which.min(waic_values)
+
+loo_values <- sapply(list(loo1, loo2, loo3), function(x) x$looic)
+best_model_loo <- which.min(loo_values) 
+
+# Final Interpretation and Recommendation
+cat(sprintf("\nBased on WAIC,
+            Model %d shows the best balance of fit and complexity.\n",best_model_waic))
+cat(sprintf("Based on LOO-CV (LOOIC),
+            Model %d is estimated to have the best predictive 
+            performance for new data.\n",
+            best_model_loo))
+
+if (best_model_waic == best_model_loo) {
+  cat(sprintf("\nConsidering both WAIC and LOO-CV, 
+              Model %d is recommended for its balance of model complexity 
+              and predictive accuracy.\n", best_model_waic))
+} else {
+  cat(
+  "\nThere is a discrepancy between the best models according to WAIC and LOO-CV.
+Further analysis and consideration of model complexity and domain-specific knowledge are
+  advised before finalizing the model choice.\n")
+}
+```
+
+### Question 4
+
+Propose an alternative model and compare it to the best model obtained above. Provide a concise interpretation.
+
+```{r}
+# Fit the alternative model with an interaction term
+fit4 <- stan_glm(alcohol ~ magnesium * color_intensity + proline, 
+                 data=italian_wines, family = gaussian(), chains = 4, iter = 2000, refresh = 0)
+
+waic4 <- waic(fit4)
+cat("WAIC for Model 4:\n")
+print(waic4)
+
+# WAIC(301.2) slightly above Model3.
+# Increased complexity(p_waic=5.4) with competitive predictive performance (elpd_waic = -150.6) places it near Model3.
+# Preference leans towards Model3 for simplicity despite Model4's close viability.
+
+loo4 <- loo(fit4)
+cat("LOO-CV for Model 4:\n")
+print(loo4)
+
+#LOO-CV(elpd_loo=-150.7,SE=9.1)mirrors WAIC,affirming the model's predictive consistency.
+#p_loo (5.4) and looic (301.3) underscore complexity and predictive capacity.
+#Monte Carlo SE of 0.0 and favorable Pareto k estimates validate reliability.
+
+# Manually set WAIC values based on observed summary output
+waic_comparison <- c("Model 3" = 299.6, 
+                     "Model 4" = 301.2)  
+
+# Assuming LOO-CV values have been manually observed from the summaries
+loo_comparison <- c("Model 3" = -150.6,  
+                    "Model 4" = -150.7) 
+
+# Determine the model with the best (lowest) WAIC
+best_waic <- which.min(waic_comparison)
+
+# Determine the model with the best (highest) LOO-CV (elpd_loo) value
+best_loo <- which.max(loo_comparison)  
+
+# Print comparisons and interpretations
+cat("\nWAIC Comparison:\n")
+print(waic_comparison)
+cat(sprintf("\nBased on WAIC, %s shows the best balance of fit and complexity.\n",
+            names(waic_comparison)[best_waic]))
+
+cat("\nLOO-CV Comparison:\n")
+print(loo_comparison)
+cat(sprintf("Based on LOO-CV, %s exhibits the strongest predictive performance
+            for new data.\n", names(loo_comparison)[best_loo]))
+
+```
+
+**Concise Alternative Model Comparison:**
+
+***WAIC shows,*** Model 3 (299.6) narrowly surpasses Model 4 (301.2), indicating superior model efficiency.
+
+***LOO-CV aligns,*** with Model 3 (-150.6) slightly ahead of Model 4 (-150.7) in prediction accuracy.
+
+**As a result of this analyze, Model 3 is the preferred model, balancing complexity and predictiveness better than Model 4.**
